@@ -2,9 +2,8 @@ name: Deploy FSL Website
 
 
 on:
-  push:
-    branches:
-      - master
+  repository_dispatch:
+    types: [site-bundle-ready]
 
 
 permissions:
@@ -25,10 +24,16 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - name: ⬇️ Checkout
-        uses: actions/checkout@v6
+      - name: ⬇️ Pull the built site bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: site-bundle
+          path: ./site
+          repository: ${{ secrets.BUILDER_REPO }}
+          run-id: ${{ github.event.client_payload.run_id }}
+          github-token: ${{ secrets.BUILDER_ARTIFACT_TOKEN }}
 
-      - name: 🏗 Upload Artifacts
+      - name: 🏗 Upload Pages artifact
         uses: actions/upload-pages-artifact@v5
         with:
           path: ./site
