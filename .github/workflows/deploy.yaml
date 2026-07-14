@@ -1,0 +1,66 @@
+name: Deploy FSL Website
+
+
+on:
+  repository_dispatch:
+    types: [site-bundle-ready]
+  workflow_dispatch:
+
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      # A dispatch carries the builder run to deploy; a manual run has no
+      # payload, so it re-deploys the newest successful build on master.
+      - name: 🔎 Resolve the builder run
+        id: builder-run
+        env:
+          GH_TOKEN: ${{ secrets.BUILDER_ARTIFACT_TOKEN }}
+          BUILDER_REPO: ${{ secrets.BUILDER_REPO }}
+          DISPATCH_RUN_ID: ${{ github.event.client_payload.run_id }}
+        run: |
+          if [ -n "${DISPATCH_RUN_ID}" ]; then
+            RUN_ID="${DISPATCH_RUN_ID}"
+          else
+            RUN_ID="$(gh api \
+              "repos/${BUILDER_REPO}/actions/workflows/build.yaml/runs?branch=master&status=success&per_page=1" \
+              --jq '.workflow_runs[0].id')"
+          fi
+          if [ -z "${RUN_ID}" ] || [ "${RUN_ID}" = "null" ]; then
+            echo "error: no builder run to deploy" >&2
+            exit 1
+          fi
+          echo "run-id=${RUN_ID}" >> "${GITHUB_OUTPUT}"
+
+      - name: 📥 Pull the built site bundle
+        uses: actions/download-artifact@v7
+        with:
+          name: site-bundle
+          path: ./site
+          repository: ${{ secrets.BUILDER_REPO }}
+          run-id: ${{ steps.builder-run.outputs.run-id }}
+          github-token: ${{ secrets.BUILDER_ARTIFACT_TOKEN }}
+
+      - name: 🏗 Upload Pages artifact
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: ./site
+
+      - name: 🚀 Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5
